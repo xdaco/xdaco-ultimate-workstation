@@ -1,0 +1,38 @@
+name: Build & Sign Containers
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Podman
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y podman buildah skopeo
+
+            - name: Build xdaco-ultimate-base
+              run: podman build -t xdaco-ultimate-base ./containers/xdaco-ultimate-base
+
+            - name: Build xdaco-ultimate-dev
+              run: podman build -t xdaco-ultimate-dev ./containers/xdaco-ultimate-dev
+
+            - name: Build xdaco-ultimate-db
+              run: podman build -t xdaco-ultimate-db ./containers/xdaco-ultimate-db
+
+            - name: Build xdaco-ultimate-ai
+              run: podman build -t xdaco-ultimate-ai ./containers/xdaco-ultimate-ai
+
+            - name: SBOM Generation
+              run: syft xdaco-ultimate-dev -o spdx-json > sbom.json
+
+            - name: Cosign Signing
+              env:
+                  COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+              run: cosign sign --key cosign.key xdaco-ultimate-dev

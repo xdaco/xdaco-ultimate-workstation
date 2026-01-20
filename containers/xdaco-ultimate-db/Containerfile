@@ -1,0 +1,7 @@
+FROM xdaco-ultimate-dev
+
+USER root
+RUN pip install --no-cache-dir mycli pgcli
+
+USER xdaco
+WORKDIR /home/xdaco

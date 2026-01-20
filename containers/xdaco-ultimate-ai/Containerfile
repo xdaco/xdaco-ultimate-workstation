@@ -1,0 +1,5 @@
+FROM xdaco-ultimate-dev
+
+# AI tooling can be added here
+USER xdaco
+WORKDIR /home/xdaco

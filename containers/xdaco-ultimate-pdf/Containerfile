@@ -1,0 +1,5 @@
+# Web-based PDF server (Stirling PDF)
+FROM docker.io/frooodle/s-pdf@latest
+
+# Expose default web port
+EXPOSE 8080

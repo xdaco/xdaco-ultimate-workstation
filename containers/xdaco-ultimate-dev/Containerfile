@@ -1,0 +1,12 @@
+FROM xdaco-ultimate-base
+
+USER root
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+    postgresql-client sqlite3 \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+USER xdaco
+WORKDIR /home/xdaco
