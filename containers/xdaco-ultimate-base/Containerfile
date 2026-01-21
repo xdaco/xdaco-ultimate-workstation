@@ -1,56 +1,116 @@
-# Base image with digest pinning
-FROM debian@sha256:56ff6d36d4eb3db13a741b342ec466f121480b5edded42e4b7ee850ce7a418ee
+# -----------------------------------------------------------------------------
+# xdaco-ultimate-base — Debian Trixie rootless base for stateless workstation
+# -----------------------------------------------------------------------------
+FROM docker.io/library/debian:trixie
+
+ARG CONTAINER_USERNAME=xdaco
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV USER=${CONTAINER_USERNAME}
+ENV HOME=/home/${CONTAINER_USERNAME}
+ENV PATH="$HOME/.cargo/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
-# Install essential system packages
+# -----------------------------------------------------------------------------
+# System packages
+# -----------------------------------------------------------------------------
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-    sudo curl wget gnupg2 lsb-release \
+    pkg-config libssl-dev cmake libgit2-dev \
+    sudo curl wget gnupg2 lsb-release ca-certificates \
     zsh git tmux openssh-server rsync \
-    build-essential gcc g++ make \
+    build-essential gcc g++ make bash nano \
     python3 python3-venv python3-pip \
     nodejs npm php-cli php-mbstring unzip \
-    bash-completion \
-    tree fzf fd-find bat jq ripgrep ncdu \
-    htop btop bottom \
-    p7zip-full zip skopeo\
-    diff-so-fancy fdupes duf \
-    nmap wego cmus asciinema \
-    pass stow neovim \
-    direnv age sops \
+    bash-completion tree fzf fd-find bat jq \
+    ripgrep ncdu htop btop p7zip-full zip skopeo \
+    fdupes duf nmap cmus asciinema pass \
+    stow neovim direnv age wego eza \
+    zoxide git-delta rustc  cargo \
+    fontconfig passwd  \
     ; \
     rm -rf /var/lib/apt/lists/*
 
-# Install Rust tools
+# -----------------------------------------------------------------------------
+# UV (Python package manager)
+# -----------------------------------------------------------------------------
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# -----------------------------------------------------------------------------
+# diff-so-fancy
+# -----------------------------------------------------------------------------
+RUN curl -fsSL \
+    https://github.com/so-fancy/diff-so-fancy/releases/download/v1.4.4/diff-so-fancy \
+    -o /usr/local/bin/diff-so-fancy \
+    && chmod +x /usr/local/bin/diff-so-fancy
+
+# -----------------------------------------------------------------------------
+# User + sudo
+# -----------------------------------------------------------------------------
 RUN set -eux; \
-    curl https://sh.rustup.rs -sSf | sh -s -- -y; \
-    source /root/.cargo/env; \
-    cargo install eza onefetch cpufetch zoxide git-delta just atuin bat-extras
+    /usr/sbin/useradd -m -s /usr/bin/zsh ${CONTAINER_USERNAME} && \
+    echo "${CONTAINER_USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${CONTAINER_USERNAME} && \
+    chmod 0440 /etc/sudoers.d/${CONTAINER_USERNAME}
 
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Install Composer
-RUN curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-
-# Install Node dev tools
-RUN npm install -g opencode @anthropic-ai/claude-code
-
-# Create user xdaco
-RUN useradd -m -s /usr/bin/zsh xdaco && \
-    echo "xdaco ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/xdaco && \
-    chmod 0440 /etc/sudoers.d/xdaco
-
-# Configure SSH
-RUN mkdir -p /var/run/sshd && \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+# ----------------------------------------- ------------------------------------
+# SSH daemon
+# -----------------------------------------------------------------------------
+RUN set -eux; \
+    mkdir -p /var/run/sshd; \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config; \
     sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
 
 EXPOSE 22
 
-USER xdaco
-WORKDIR /home/xdaco
+# -----------------------------------------------------------------------------
+# Switch to user
+# -----------------------------------------------------------------------------
+USER ${USER}
+WORKDIR ${HOME}
+
+# -----------------------------------------------------------------------------
+# Rust based tools (rootless)
+# -----------------------------------------------------------------------------
+RUN set -eux; \
+    cargo install just || true; \
+    cargo install onefetch || true; \
+    cargo install atuin || true
+
+# -----------------------------------------------------------------------------
+# Oh My Zsh + Agnoster + Fonts + Starship
+# -----------------------------------------------------------------------------
+RUN set -eux; \
+    \
+    # Oh My Zsh (official unattended)
+    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended; \
+    \
+    # Agnoster theme
+    git clone --depth=1 https://github.com/agnoster/agnoster-zsh-theme.git /tmp/agnoster; \
+    cp /tmp/agnoster/agnoster.zsh-theme "$HOME/.oh-my-zsh/custom/themes/agnoster.zsh-theme"; \
+    rm -rf /tmp/agnoster; \
+    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="agnoster"/' "$HOME/.zshrc"; \
+    \
+    # Powerline fonts
+    git clone --depth=1 https://github.com/powerline/fonts.git /tmp/powerline-fonts; \
+    /tmp/powerline-fonts/install.sh; \
+    rm -rf /tmp/powerline-fonts; \
+    \
+    # Nerd Fonts (Agave + Meslo)
+    mkdir -p "$HOME/.local/share/fonts"; \
+    curl -fsSL https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Agave.zip -o /tmp/Agave.zip; \
+    curl -fsSL https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Meslo.zip -o /tmp/Meslo.zip; \
+    unzip -qo /tmp/Agave.zip -d "$HOME/.local/share/fonts"; \
+    unzip -qo /tmp/Meslo.zip -d "$HOME/.local/share/fonts"; \
+    fc-cache -fv; \
+    rm -f /tmp/Agave.zip /tmp/Meslo.zip; \
+    \
+    # Starship (installed but not enabled)
+    curl -fsSL https://starship.rs/install.sh | sh -s -- -y; \
+    printf '\n# Starship (optional — disabled by default)\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"
+
+# -----------------------------------------------------------------------------
+# Entrypoint
+# -----------------------------------------------------------------------------
+WORKDIR ${HOME}
 CMD ["/usr/sbin/sshd", "-D"]

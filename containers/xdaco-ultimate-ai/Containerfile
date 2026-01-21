@@ -1,5 +1,26 @@
-FROM xdaco-ultimate-dev
+FROM localhost/xdaco-ultimate-base:latest
 
 # AI tooling can be added here
-USER xdaco
-WORKDIR /home/xdaco
+USER ${USER}
+# -----------------------------------------------------------------------------
+# NPM rootless configuration
+# -----------------------------------------------------------------------------
+RUN mkdir -p "$HOME/.npm-global" && \
+    npm config set prefix "$HOME/.npm-global" && \
+    npm install -g @anthropic-ai/claude-code
+
+# -----------------------------------------------------------------------------
+# Python rootless installation with pipx
+# -----------------------------------------------------------------------------
+RUN python3 -m pip install --user --break-system-packages pipx
+RUN python3 -m pipx ensurepath
+RUN python3 -m pipx install mcp-memory-service
+
+# -----------------------------------------------------------------------------
+# Install Opencode (rootless)
+# -----------------------------------------------------------------------------
+RUN curl -fsSL https://opencode.ai/install | bash
+ENV PATH="$HOME/.opencode/bin:$PATH"
+
+USER ${USER}
+WORKDIR ${HOME}

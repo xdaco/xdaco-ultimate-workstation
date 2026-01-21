@@ -1,4 +1,17 @@
-FROM xdaco-ultimate-base
+# -----------------------------------------------------------------------------
+# Multi-stage builders
+# -----------------------------------------------------------------------------
+FROM docker.io/library/composer:2.6 AS composer-builder
+FROM docker.io/chatwork/sops:3.11.0 AS sops-builder
+
+# -----------------------------------------------------------------------------
+# Main image
+# -----------------------------------------------------------------------------
+FROM localhost/xdaco-ultimate-base:latest
+
+# Copy binaries from builders
+COPY --from=composer-builder /usr/bin/composer /usr/local/bin/composer
+COPY --from=sops-builder /usr/local/bin/sops  /usr/local/bin/sops
 
 USER root
 RUN set -eux; \
@@ -8,5 +21,5 @@ RUN set -eux; \
     ; \
     rm -rf /var/lib/apt/lists/*
 
-USER xdaco
-WORKDIR /home/xdaco
+USER ${USER}
+WORKDIR ${HOME}
