@@ -48,7 +48,7 @@ brew update
 
 # ---- Core host tools ----
 echo ">>> Installing core host tools..."
-brew install podman podman-desktop gh git zsh mas || true
+brew install podman podman-desktop gh git zsh mas tree wget jq tldr thefuck python3 composer || true
 
 # Install tailscale separately with error handling for linking issues
 echo ">>> Installing tailscale..."
@@ -132,6 +132,30 @@ app_installed() {
     whatsapp)
       [[ -d "/Applications/WhatsApp.app" ]] && return 0
       ;;
+    go2shell)
+      [[ -d "/Applications/Go2Shell.app" ]] && return 0
+      ;;
+    shuttle)
+      [[ -d "/Applications/Shuttle.app" ]] && return 0
+      ;;
+    textmate)
+      [[ -d "/Applications/TextMate.app" ]] && return 0
+      ;;
+    antigravity)
+      [[ -d "/Applications/AntiGravity.app" ]] && return 0
+      ;;
+    notion)
+      [[ -d "/Applications/Notion.app" ]] && return 0
+      ;;
+    calibre)
+      [[ -d "/Applications/calibre.app" ]] && return 0
+      ;;
+    kindle)
+      [[ -d "/Applications/Kindle.app" ]] && return 0
+      ;;
+    the-unarchiver)
+      [[ -d "/Applications/The Unarchiver.app" ]] && return 0
+      ;;
   esac
   return 1
 }
@@ -170,6 +194,14 @@ install_app_if_needed obsidian
 install_app_if_needed utm
 install_app_if_needed alfred
 install_app_if_needed whatsapp
+install_app_if_needed go2shell
+install_app_if_needed shuttle
+install_app_if_needed textmate
+install_app_if_needed antigravity
+install_app_if_needed notion
+install_app_if_needed calibre
+install_app_if_needed kindle
+install_app_if_needed the-unarchiver
 
 # ---- SSH config ----
 mkdir -p ~/.ssh

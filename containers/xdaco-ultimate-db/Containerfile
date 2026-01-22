@@ -1,4 +1,4 @@
-FROM localhost/xdaco-ultimate-ai:latest
+FROM docker.io/1xdaco/xdaco-ultimate-ai:latest
 
 USER ${USER}
 RUN python3 -m pipx install mycli pgcli

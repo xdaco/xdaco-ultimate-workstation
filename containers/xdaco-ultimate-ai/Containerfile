@@ -1,4 +1,4 @@
-FROM localhost/xdaco-ultimate-base:latest
+FROM docker.io/1xdaco/xdaco-ultimate-dev:latest
 
 # AI tooling can be added here
 USER ${USER}

@@ -7,7 +7,7 @@ FROM docker.io/chatwork/sops:3.11.0 AS sops-builder
 # -----------------------------------------------------------------------------
 # Main image
 # -----------------------------------------------------------------------------
-FROM localhost/xdaco-ultimate-base:latest
+FROM docker.io/1xdaco/xdaco-ultimate-base:latest
 
 # Copy binaries from builders
 COPY --from=composer-builder /usr/bin/composer /usr/local/bin/composer
