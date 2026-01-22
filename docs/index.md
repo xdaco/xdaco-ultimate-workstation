@@ -114,7 +114,12 @@ RUN set -eux; \
     \
     # Starship (installed but not enabled)
     curl -fsSL https://starship.rs/install.sh | sh -s -- -y; \
-    printf '\n# Starship (optional — disabled by default)\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"
+    printf '\n# Starship (optional — disabled by default)\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"; \
+    \
+    # Download and load xdaco aliases
+    curl -fsSL https://raw.githubusercontent.com/xdaco/bash-resources/master/xdaco_aliases.sh -o "$HOME/xdaco_aliases.sh"; \
+    chmod +x "$HOME/xdaco_aliases.sh"; \
+    printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  source "$HOME/xdaco_aliases.sh"\nfi\n' >> "$HOME/.zshrc"
 
 # -----------------------------------------------------------------------------
 # Entrypoint
@@ -404,20 +409,28 @@ The **container** username is configured separately via the `CONTAINER_USERNAME`
 - **Smart package checking**: Skips already-installed packages/apps
 - **Sudo password caching**: Asks for password once and reuses it
 - **Robust rpm-ostree handling**: Checks if packages are installed, staged, or provided by base
+- **Architecture-aware**: Different flatpak app lists for x86_64 and aarch64
 - **Flatpak app guards**: Only installs missing applications
+- **Font installation**: Installs Nerd Fonts (Agave + Meslo) for better terminal experience
+- **Alias management**: Downloads and sources xdaco aliases for git shortcuts
 - **Idempotent operations**: Safe to run multiple times
 
 ### Linux Bootstrap (`scripts/bootstrap-linux.sh`)
 
+**Compatibility:** Written in POSIX-compliant shell (`sh`) to work on fresh installs where bash or zsh may not be available.
+
 **What it does:**
 1. Creates user if it doesn't exist (default: `mhs`)
 2. Sets MTU for network interface (`enp0s1`)
-3. Installs rpm-ostree packages: `zsh`, `git`, `tailscale`, `podman`, `alacritty`
-4. Adds Sublime Text repository
+3. Installs rpm-ostree packages: `zsh`, `git`, `tailscale`, `podman`, `alacritty`, `lsd`, `tmux`
+4. Adds Sublime Text repository (x86_64 only)
 5. Adds Flathub remote for flatpak apps
-6. Installs flatpak GUI applications
-7. Installs `chezmoi` for dotfiles management
-8. Installs `starship` prompt (optional)
+6. Installs flatpak GUI applications (architecture-specific lists)
+7. Installs Nerd Fonts (Agave + Meslo) for better terminal experience
+8. Installs `chezmoi` for dotfiles management
+9. Installs `starship` prompt (optional)
+10. Installs `oh-my-zsh` if zsh is available
+11. Downloads and configures xdaco aliases for git shortcuts
 
 **Usage:**
 ```bash
@@ -431,7 +444,10 @@ The **container** username is configured separately via the `CONTAINER_USERNAME`
 TARGET_USER=myusername ./scripts/bootstrap-linux.sh
 ```
 
-**Note:** Some packages may fail to install on aarch64 architecture.
+**Note:** 
+- Some packages may fail to install on aarch64 architecture
+- Flatpak apps are architecture-aware: x86_64 gets full list including Sublime Text, Texmaker, NoMachine, and Whatsie; aarch64 gets a reduced list without these apps
+- Sublime Text repository is only added on x86_64 systems
 
 ### macOS Bootstrap (`scripts/bootstrap-mac.zsh`)
 
@@ -441,10 +457,13 @@ TARGET_USER=myusername ./scripts/bootstrap-linux.sh
 3. Updates system and installs Xcode Command Line Tools
 4. Installs Homebrew if needed
 5. Installs host tools: `podman`, `podman-desktop`, `tailscale`, `gh`, `git`, `zsh`, `mas`
-6. Installs GUI applications via Homebrew Cask
-7. Initializes Podman VM
-8. Clones and applies dotfiles using `make`
-9. Configures SSH access to container
+   - Handles tailscale linking issues automatically
+6. Installs GUI applications via Homebrew Cask (with existence checks to avoid conflicts)
+7. Configures SSH access to container
+8. Installs Nerd Fonts (Agave + Meslo) for better terminal experience
+9. Downloads and configures xdaco aliases for git shortcuts
+
+**Note:** The script checks if applications already exist before installing to prevent "App already exists" errors.
 
 **Usage:**
 ```bash
@@ -546,6 +565,24 @@ chezmoi init --apply https://github.com/YOURORG/dotfiles.git
 stow zsh tmux nvim git
 ```
 
+## 🎨 Aliases & Fonts
+
+### xdaco Aliases
+
+Git aliases and helper functions are automatically installed:
+- Downloaded to `~/xdaco_aliases.sh` during bootstrap/container build
+- Sourced from `.zshrc` on shell startup
+- Provides shortcuts like `g`, `gs`, `gd`, `gl`, `gp` for git operations
+- Includes cross-platform permission helpers (`lsh`, `lsp`)
+- Works offline after initial download
+
+### Nerd Fonts
+
+Nerd Fonts (Agave + Meslo) are installed for better terminal experience:
+- Installed to `~/.local/share/fonts/`
+- Automatically configured in containers
+- Installed by bootstrap scripts on host systems
+
 ---
 
 ## 🔑 Secrets
@@ -593,9 +630,9 @@ ssh ultimate-devcontainer -p 2222
 
 ### Container CLI
 
-- zsh, oh-my-zsh, gitstatus, tmux, neovim
+- zsh, oh-my-zsh (Agnoster theme), gitstatus, tmux, neovim
 - direnv, zoxide, atuin, starship (installed, not default)
-- tree, fd, bat, jq, ripgrep
+- tree, fd, bat, jq, ripgrep, eza, lsd
 - diff-so-fancy, delta, rsync, ncdu, duf, fdupes
 - p7zip, zip, glow, pass, stow, skopeo
 - nmap, asciinema, wego
@@ -605,29 +642,37 @@ ssh ultimate-devcontainer -p 2222
 - opencode, claude-code
 - podman, podman-compose
 - age, sops, gnupg
+- xdaco aliases (git shortcuts and helpers)
+- Nerd Fonts (Agave + Meslo) for terminal
 
 ---
 
 ### GUI Apps (macOS + Fedora)
 
-- alacritty
-- ghostty
-- vscode
-- sublime-text
-- texmaker
-- vlc
-- brave
-- gimp
-- balenaEtcher
-- bitwarden
-- nomachine
-- slack
-- tailscale
-- inkscape
-- obsidian
-- whatsapp
-- libreoffice
-- stirling-pdf (container)
+**macOS (via Homebrew Cask):**
+- alacritty, ghostty
+- visual-studio-code, sublime-text, texmaker
+- vlc, brave-browser, gimp
+- cursor, balenaetcher, bitwarden, nomachine, slack
+- inkscape, obsidian
+- utm, alfred, whatsapp
+
+**Linux (via Flatpak, architecture-specific):**
+
+**x86_64:**
+- com.visualstudio.code, com.sublimetext.three, net.xm1math.Texmaker
+- org.videolan.VLC, com.brave.Browser, org.gimp.GIMP
+- com.bitwarden.desktop, com.nomachine.nxplayer, com.slack.Slack
+- org.inkscape.Inkscape, md.obsidian.Obsidian, com.ktechpit.whatsie
+- org.libreoffice.LibreOffice, io.github.alainm23.planify, com.rustdesk.RustDesk
+
+**aarch64:**
+- com.visualstudio.code, org.videolan.VLC, com.brave.Browser
+- com.quexten.Goldwarden, org.gimp.GIMP, com.ktechpit.whatsie
+- org.inkscape.Inkscape, md.obsidian.Obsidian
+- org.libreoffice.LibreOffice, io.github.alainm23.planify, com.rustdesk.RustDesk
+
+**Note:** Some apps (Sublime Text, Texmaker, NoMachine, Bitwarden) are not available on aarch64.
 
 ---
 
