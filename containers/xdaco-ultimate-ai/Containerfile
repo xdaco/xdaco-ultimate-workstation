@@ -1,7 +1,7 @@
 FROM docker.io/1xdaco/xdaco-ultimate-dev:latest
 
-# AI tooling can be added here
 USER ${USER}
+
 # -----------------------------------------------------------------------------
 # NPM rootless configuration
 # -----------------------------------------------------------------------------
@@ -12,10 +12,12 @@ RUN mkdir -p "$HOME/.npm-global" && \
 # -----------------------------------------------------------------------------
 # Python rootless installation with pipx
 # -----------------------------------------------------------------------------
-RUN python3 -m pip install --user --break-system-packages pipx
-RUN python3 -m pipx ensurepath
-RUN python3 -m pipx install mcp-memory-service
+RUN python3 -m pip install --user --break-system-packages pipx && \
+    python3 -m pipx ensurepath
 
+# FIX: Pre-inject CPU-only Torch into the pipx shared space or environment
+# This prevents the 10GB+ NVIDIA/CUDA download on AMD64
+RUN pipx install mcp-memory-service --pip-args="--extra-index-url https://download.pytorch.org/whl/cpu"
 # -----------------------------------------------------------------------------
 # Install Opencode (rootless)
 # -----------------------------------------------------------------------------

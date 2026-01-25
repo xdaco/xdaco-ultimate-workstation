@@ -117,8 +117,7 @@ RUN set -eux; \
     # Download and load xdaco aliases
     curl -fsSL https://raw.githubusercontent.com/xdaco/bash-resources/master/xdaco_aliases.sh -o "$HOME/xdaco_aliases.sh"; \
     chmod +x "$HOME/xdaco_aliases.sh"; \
-    printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  source "$HOME/xdaco_aliases.sh"\nfi\n' >> "$HOME/.zshrc"
-
+    printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  set -f; source "$HOME/xdaco_aliases.sh"; set +f\nfi\n' >> "$HOME/.zshrc"
 # -----------------------------------------------------------------------------
 # Entrypoint
 # -----------------------------------------------------------------------------
