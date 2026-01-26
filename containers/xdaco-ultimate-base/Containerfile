@@ -75,7 +75,7 @@ USER ${USER}
 WORKDIR ${HOME}
 
 # -----------------------------------------------------------------------------
-# Rust based tools (rootqless)
+# Rust based tools (rootless)
 # -----------------------------------------------------------------------------
 RUN set -eux; \
     cargo install just || true; \
