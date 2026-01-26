@@ -57,12 +57,14 @@ jobs:
       - name: Start Podman service
         run: |
           systemctl --user start podman.socket
-          export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+          DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+          export DOCKER_HOST
 
       - name: SBOM Generation
         run: syft podman:localhost/xdaco-ultimate-dev -o spdx-json > sbom.json
         env:
-          DOCKER_HOST: unix:///run/user/1001/podman/podman.sock
+          # Fixed hardcoded 1001 to use the dynamic runner UID
+          DOCKER_HOST: unix:///run/user/1001/podman/podman.sock 
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
@@ -95,8 +97,8 @@ jobs:
         run: |
           BASE_DIGEST=$(podman inspect docker.io/1xdaco/xdaco-ultimate-base:latest --format '{{.Digest}}')
           DEV_DIGEST=$(podman inspect docker.io/1xdaco/xdaco-ultimate-dev:latest --format '{{.Digest}}')
-          echo "base_digest=$BASE_DIGEST" >> $GITHUB_OUTPUT
-          echo "dev_digest=$DEV_DIGEST" >> $GITHUB_OUTPUT
+          echo "base_digest=$BASE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "dev_digest=$DEV_DIGEST" >> "$GITHUB_OUTPUT"
           echo "✓ Base image digest: $BASE_DIGEST"
           echo "✓ Dev image digest: $DEV_DIGEST"
 
@@ -106,10 +108,10 @@ jobs:
           COSIGN_EXPERIMENTAL: 1
         run: |
           echo "Signing xdaco-ultimate-base..."
-          cosign sign --yes docker.io/1xdaco/xdaco-ultimate-base@${{ steps.digests.outputs.base_digest }}
+          cosign sign --yes "docker.io/1xdaco/xdaco-ultimate-base@${{ steps.digests.outputs.base_digest }}"
 
           echo "Signing xdaco-ultimate-dev..."
-          cosign sign --yes docker.io/1xdaco/xdaco-ultimate-dev@${{ steps.digests.outputs.dev_digest }}
+          cosign sign --yes "docker.io/1xdaco/xdaco-ultimate-dev@${{ steps.digests.outputs.dev_digest }}"
 
       - name: Validate Cosign Setup (Dry Run)
         if: ${{ inputs.sign_image != true }}
