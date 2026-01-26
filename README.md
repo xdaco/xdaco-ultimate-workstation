@@ -35,7 +35,7 @@ RUN set -eux; \
     fdupes duf nmap cmus asciinema pass \
     stow neovim direnv age wego eza \
     zoxide git-delta rustc  cargo \
-    fontconfig passwd  \
+    fontconfig passwd less glow \
     ; \
     rm -rf /var/lib/apt/lists/*
 
@@ -51,6 +51,11 @@ RUN curl -fsSL \
     https://github.com/so-fancy/diff-so-fancy/releases/download/v1.4.4/diff-so-fancy \
     -o /usr/local/bin/diff-so-fancy \
     && chmod +x /usr/local/bin/diff-so-fancy
+
+# -----------------------------------------------------------------------------
+# Syft (SBOM generator)
+# -----------------------------------------------------------------------------
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
 # -----------------------------------------------------------------------------
 # User + sudo
@@ -119,7 +124,7 @@ RUN set -eux; \
     # Download and load xdaco aliases
     curl -fsSL https://raw.githubusercontent.com/xdaco/bash-resources/master/xdaco_aliases.sh -o "$HOME/xdaco_aliases.sh"; \
     chmod +x "$HOME/xdaco_aliases.sh"; \
-    printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  source "$HOME/xdaco_aliases.sh"\nfi\n' >> "$HOME/.zshrc"
+    printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  set -f; source "$HOME/xdaco_aliases.sh"; set +f\nfi\n' >> "$HOME/.zshrc"
 
 # -----------------------------------------------------------------------------
 # Entrypoint
@@ -142,7 +147,7 @@ FROM docker.io/chatwork/sops:3.11.0 AS sops-builder
 # -----------------------------------------------------------------------------
 # Main image
 # -----------------------------------------------------------------------------
-FROM localhost/xdaco-ultimate-base:latest
+FROM docker.io/1xdaco/xdaco-ultimate-base:latest
 
 # Copy binaries from builders
 COPY --from=composer-builder /usr/bin/composer /usr/local/bin/composer
@@ -165,10 +170,10 @@ WORKDIR ${HOME}
 ## 📦 `containers/xdaco-ultimate-ai/Containerfile`
 
 ```Dockerfile
-FROM localhost/xdaco-ultimate-base:latest
+FROM docker.io/1xdaco/xdaco-ultimate-dev:latest
 
-# AI tooling can be added here
 USER ${USER}
+
 # -----------------------------------------------------------------------------
 # NPM rootless configuration
 # -----------------------------------------------------------------------------
@@ -179,9 +184,11 @@ RUN mkdir -p "$HOME/.npm-global" && \
 # -----------------------------------------------------------------------------
 # Python rootless installation with pipx
 # -----------------------------------------------------------------------------
-RUN python3 -m pip install --user --break-system-packages pipx
-RUN python3 -m pipx ensurepath
-RUN python3 -m pipx install mcp-memory-service
+RUN python3 -m pip install --user --break-system-packages pipx && \
+    python3 -m pipx ensurepath
+
+# mcp-memory-service with CPU-only Torch (avoids 10GB+ NVIDIA/CUDA on AMD64)
+RUN pipx install mcp-memory-service --pip-args="--extra-index-url https://download.pytorch.org/whl/cpu"
 
 # -----------------------------------------------------------------------------
 # Install Opencode (rootless)
@@ -198,7 +205,7 @@ WORKDIR ${HOME}
 ## 📦 `containers/xdaco-ultimate-db/Containerfile`
 
 ```Dockerfile
-FROM localhost/xdaco-ultimate-ai:latest
+FROM docker.io/1xdaco/xdaco-ultimate-ai:latest
 
 USER ${USER}
 RUN python3 -m pipx install mycli pgcli
@@ -223,30 +230,42 @@ _(Or pull directly, no build needed.)_
 
 # 🏗 PART 2 — BUILD COMMANDS
 
-## Default Build (uses username "xdaco")
+The dev, ai, and db containerfiles use `FROM docker.io/1xdaco/xdaco-ultimate-base` (and chain). Build order: **base → dev → ai → db**. Tag locally as `docker.io/1xdaco/...` so those `FROM` references resolve.
+
+## Pre-built (Docker Hub)
 
 ```bash
-podman build -t xdaco-ultimate-base containers/xdaco-ultimate-base
-podman build -t xdaco-ultimate-dev containers/xdaco-ultimate-dev
-podman build -t xdaco-ultimate-ai containers/xdaco-ultimate-ai
-podman build -t xdaco-ultimate-db containers/xdaco-ultimate-db
+podman pull docker.io/1xdaco/xdaco-ultimate-base:latest
+podman pull docker.io/1xdaco/xdaco-ultimate-dev:latest
+# optional: ai, db
+podman pull docker.io/frooodle/s-pdf
+podman tag docker.io/frooodle/s-pdf xdaco-ultimate-pdf
+```
+
+## Local Build (uses username "xdaco")
+
+```bash
+podman build -t docker.io/1xdaco/xdaco-ultimate-base:latest containers/xdaco-ultimate-base
+podman build -t docker.io/1xdaco/xdaco-ultimate-dev:latest containers/xdaco-ultimate-dev
+podman build -t docker.io/1xdaco/xdaco-ultimate-ai:latest containers/xdaco-ultimate-ai
+podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultimate-db
 podman pull docker.io/frooodle/s-pdf
 podman tag docker.io/frooodle/s-pdf xdaco-ultimate-pdf
 ```
 
 ## Custom Username Build
 
-To build with a custom container username, use the `CONTAINER_USERNAME` build argument:
+Use the `CONTAINER_USERNAME` build argument (base only; it propagates via `USER`/`HOME`):
 
 ```bash
 CONTAINER_USER=myuser
-podman build --build-arg CONTAINER_USERNAME=$CONTAINER_USER -t xdaco-ultimate-base containers/xdaco-ultimate-base
-podman build --build-arg CONTAINER_USERNAME=$CONTAINER_USER -t xdaco-ultimate-dev containers/xdaco-ultimate-dev
-podman build --build-arg CONTAINER_USERNAME=$CONTAINER_USER -t xdaco-ultimate-ai containers/xdaco-ultimate-ai
-podman build --build-arg CONTAINER_USERNAME=$CONTAINER_USER -t xdaco-ultimate-db containers/xdaco-ultimate-db
+podman build --build-arg CONTAINER_USERNAME=$CONTAINER_USER -t docker.io/1xdaco/xdaco-ultimate-base:latest containers/xdaco-ultimate-base
+podman build -t docker.io/1xdaco/xdaco-ultimate-dev:latest containers/xdaco-ultimate-dev
+podman build -t docker.io/1xdaco/xdaco-ultimate-ai:latest containers/xdaco-ultimate-ai
+podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultimate-db
 ```
 
-**Note:** All child images must use the same `CONTAINER_USERNAME` as the base image they inherit from.
+**Note:** All child images inherit `USER`/`HOME` from base; use the same `CONTAINER_USERNAME` when building the base.
 
 ---
 
@@ -261,11 +280,11 @@ podman run -d \
   --hostname xdaco-ultimate-devcontainer \
   -p 2222:22 \
   -v ~/Downloads/mhs_workspace:/home/xdaco/workspace:Z \
-  xdaco-ultimate-dev
+  docker.io/1xdaco/xdaco-ultimate-dev:latest
 ```
 
-**Custom username:**
-If you built with a custom `CONTAINER_USERNAME`, adjust the volume mount path accordingly:
+**Custom username:**  
+If you built base with a custom `CONTAINER_USERNAME`, adjust the volume mount path:
 ```bash
 CONTAINER_USER=myuser
 podman run -d \
@@ -273,7 +292,7 @@ podman run -d \
   --hostname xdaco-ultimate-devcontainer \
   -p 2222:22 \
   -v ~/Downloads/mhs_workspace:/home/$CONTAINER_USER/workspace:Z \
-  xdaco-ultimate-dev
+  docker.io/1xdaco/xdaco-ultimate-dev:latest
 ```
 
 ## PDF Server
@@ -338,7 +357,7 @@ ExecStart=/usr/bin/podman run --rm \
   --hostname xdaco-ultimate-devcontainer \
   -p 2222:22 \
   -v %h/Downloads/mhs_workspace:/home/xdaco/workspace:Z \
-  xdaco-ultimate-dev
+  docker.io/1xdaco/xdaco-ultimate-dev:latest
 
 ExecStop=/usr/bin/podman stop xdaco-ultimate-devcontainer
 
@@ -346,8 +365,8 @@ ExecStop=/usr/bin/podman stop xdaco-ultimate-devcontainer
 WantedBy=default.target
 ```
 
-**Custom username:**
-If you built with a custom `CONTAINER_USERNAME`, adjust the volume mount path:
+**Custom username:**  
+If you built base with a custom `CONTAINER_USERNAME`, adjust the volume mount path:
 ```ini
 [Unit]
 Description=XDACO Ultimate Devcontainer
@@ -360,7 +379,7 @@ ExecStart=/usr/bin/podman run --rm \
   --hostname xdaco-ultimate-devcontainer \
   -p 2222:22 \
   -v %h/Downloads/mhs_workspace:/home/myuser/workspace:Z \
-  xdaco-ultimate-dev
+  docker.io/1xdaco/xdaco-ultimate-dev:latest
 
 ExecStop=/usr/bin/podman stop xdaco-ultimate-devcontainer
 
@@ -379,8 +398,8 @@ systemctl --user enable --now xdaco-ultimate-devcontainer
 # 🔐 PART 6 — SBOM + COSIGN
 
 ```bash
-syft xdaco-ultimate-dev -o spdx-json > sbom.json
-cosign sign --key cosign.key xdaco-ultimate-dev
+syft podman:docker.io/1xdaco/xdaco-ultimate-dev:latest -o spdx-json > sbom.json
+cosign sign --key cosign.key docker.io/1xdaco/xdaco-ultimate-dev:latest
 ```
 
 ---
@@ -390,7 +409,7 @@ cosign sign --key cosign.key xdaco-ultimate-dev
 `.envrc`
 
 ```bash
-use podman xdaco-ultimate-dev
+use podman docker.io/1xdaco/xdaco-ultimate-dev:latest
 layout python
 ```
 
@@ -480,11 +499,11 @@ TARGET_USER=myusername CONTAINER_USER=mycontaineruser ./scripts/bootstrap-mac.zs
 ### macOS
 
 ```bash
-# Build with default container username (xdaco)
-podman build -t xdaco-ultimate-base containers/xdaco-ultimate-base
-podman build -t xdaco-ultimate-dev containers/xdaco-ultimate-dev
-podman build -t xdaco-ultimate-db containers/xdaco-ultimate-db
-podman build -t xdaco-ultimate-ai containers/xdaco-ultimate-ai
+# Build (tag as docker.io/1xdaco/... so dev/ai/db FROMs resolve)
+podman build -t docker.io/1xdaco/xdaco-ultimate-base:latest containers/xdaco-ultimate-base
+podman build -t docker.io/1xdaco/xdaco-ultimate-dev:latest containers/xdaco-ultimate-dev
+podman build -t docker.io/1xdaco/xdaco-ultimate-ai:latest containers/xdaco-ultimate-ai
+podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultimate-db
 
 podman rm -f xdaco-ultimate-devcontainer || true
 podman run -d \
@@ -492,12 +511,12 @@ podman run -d \
   --hostname xdaco-ultimate-devcontainer \
   -p 2222:22 \
   -v ~/Downloads/mhs_workspace:/home/xdaco/workspace:Z \
-  xdaco-ultimate-dev
+  docker.io/1xdaco/xdaco-ultimate-dev:latest
 ```
 
 ### Linux
 
-Same build commands as macOS.
+Same build and run commands as macOS.
 
 ---
 
@@ -618,7 +637,7 @@ podman auto-update
 `.envrc`
 
 ```bash
-use podman xdaco-ultimate-dev
+use podman docker.io/1xdaco/xdaco-ultimate-dev:latest
 ```
 
 ```bash
@@ -641,16 +660,18 @@ ssh ultimate-devcontainer -p 2222
 
 - zsh, oh-my-zsh (Agnoster theme), gitstatus, tmux, neovim
 - direnv, zoxide, atuin, starship (installed, not default)
-- tree, fd, bat, jq, ripgrep, eza, lsd
+- tree, fd, bat, jq, ripgrep, eza, lsd, less, glow
 - diff-so-fancy, delta, rsync, ncdu, duf, fdupes
-- p7zip, zip, glow, pass, stow, skopeo
+- p7zip, zip, pass, stow, skopeo
 - nmap, asciinema, wego
 - htop, btop, cpufetch, neofetch, onefetch
 - gcc, g++, make, python3, nodejs, npm, composer
-- mycli, pgcli, postgrest
-- opencode, claude-code
+- mycli, pgcli, postgrest (ai/db images)
+- opencode, claude-code (ai image)
+- mcp-memory-service via pipx, CPU-only Torch (ai image)
 - podman, podman-compose
 - age, sops, gnupg
+- syft (SBOM), cosign (signing)
 - xdaco aliases (git shortcuts and helpers)
 - Nerd Fonts (Agave + Meslo) for terminal
 
