@@ -28,7 +28,7 @@ RUN set -eux; \
     fdupes duf nmap cmus asciinema pass \
     stow neovim direnv age wego eza \
     zoxide git-delta rustc  cargo \
-    fontconfig passwd  \
+    fontconfig passwd  less glow \
     ; \
     rm -rf /var/lib/apt/lists/*
 
@@ -75,7 +75,7 @@ USER ${USER}
 WORKDIR ${HOME}
 
 # -----------------------------------------------------------------------------
-# Rust based tools (rootless)
+# Rust based tools (rootqless)
 # -----------------------------------------------------------------------------
 RUN set -eux; \
     cargo install just || true; \
