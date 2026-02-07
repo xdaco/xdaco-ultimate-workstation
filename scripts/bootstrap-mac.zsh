@@ -5,6 +5,8 @@ set -euo pipefail
 TARGET_USER=${1:-${TARGET_USER:-xdaco}}
 CONTAINER_USER=${CONTAINER_USER:-xdaco}
 WORKSPACE_DIR=${WORKSPACE_DIR:-~/Downloads/mhs_workspace}
+REPO_ROOT="${0:a:h:h}"
+BREWFILE_PATH="${REPO_ROOT}/Brewfile"
 
 echo "Running for Target User: $TARGET_USER"
 
@@ -59,14 +61,20 @@ eval "$($BREW_PREFIX/bin/brew shellenv)"
 brew update
 
 # ---- Homebrew Bundle (Resilient Installation) ----
-if [ -f "${DOTFILES_DIR}/Brewfile" ]; then
-  echo ">>> Installing CLI tools from Brewfile..."
-  brew bundle --file="${DOTFILES_DIR}/Brewfile" --no-lock
-fi
+if [ -f "$BREWFILE_PATH" ]; then
+    echo ">>> Installing from $BREWFILE_PATH..."
 
-if [ -f "${DOTFILES_DIR}/Caskfile" ]; then
-  echo ">>> Installing GUI applications from Caskfile..."
-  brew bundle --file="${DOTFILES_DIR}/Caskfile" --no-lock
+    # Use environment variable to prevent lockfile creation
+    export HOMEBREW_BUNDLE_NO_LOCK=1
+
+    # Run the bundle. If it fails, just show a warning but don't exit.
+    if ! brew bundle --file="$BREWFILE_PATH"; then
+        echo ">>> Warning: Some bundle items failed to install, check logs above."
+    fi
+else
+    # This ONLY triggers if the file itself is missing
+    echo ">>> Error: Brewfile not found at $BREWFILE_PATH"
+    exit 1
 fi
 
 # ---- SSH config ----

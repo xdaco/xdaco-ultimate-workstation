@@ -1,5 +1,4 @@
 # ---- Taps (External Repositories) ----
-tap "homebrew/bundle"
 tap "lotyp/homebrew-formulae"
 
 # ---- CLI Tools (Standard Brew) ----
@@ -90,4 +89,3 @@ cask "texmaker"
 # ---- Fonts ----
 cask "font-fira-code"
 cask "font-awesome-terminal-fonts"
-
