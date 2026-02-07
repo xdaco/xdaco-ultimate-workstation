@@ -2,9 +2,11 @@
 set -euo pipefail
 
 # Configurable variables
-TARGET_USER=${1:-${TARGET_USER:-mhs}}
+TARGET_USER=${1:-${TARGET_USER:-xdaco}}
 CONTAINER_USER=${CONTAINER_USER:-xdaco}
 WORKSPACE_DIR=${WORKSPACE_DIR:-~/Downloads/mhs_workspace}
+
+echo "Running for Target User: $TARGET_USER"
 
 echo ">>> macOS Stateless Workstation Bootstrap"
 

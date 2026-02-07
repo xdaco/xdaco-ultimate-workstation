@@ -1,0 +1,58 @@
+tap "lotyp/homebrew-formulae"
+
+# core/dotfiles
+brew "bats-core"
+brew "coreutils"
+brew "duti"
+brew "lotyp/formulae/dockutil"
+brew "nano"
+brew "stow"
+brew "thefuck"
+brew "tmux"
+brew "topgrade"
+brew "podman"
+brew "tailscale"
+brew "mas"
+brew "gh"
+brew "git"
+
+# fs/network
+brew "bat"
+brew "croc"
+brew "eza"
+brew "httpie"
+brew "ssh-copy-id"
+brew "tree"
+brew "unar"
+brew "wget"
+brew "zoxide"
+
+# search/grep/diff
+brew "fd"
+brew "fzf"
+brew "git-delta"
+brew "gnu-sed"
+brew "grep"
+brew "jq"
+brew "psgrep"
+brew "ripgrep"
+brew "the_silver_searcher"
+
+# languages/tools
+brew "cmake"
+brew "gh"
+brew "n"
+#brew "python@3.14"
+brew "ruby"
+brew "rust"
+brew "shellcheck"
+
+# media
+brew "ffmpeg"
+brew "imagemagick"
+brew "optipng"
+brew "uni"
+brew "webp"
+
+# misc
+brew "grip"
