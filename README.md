@@ -4,160 +4,32 @@
 
 ## 📦 `containers/xdaco-ultimate-base/Containerfile`
 
-```Dockerfile
-# -----------------------------------------------------------------------------
-# xdaco-ultimate-base — Debian Trixie rootless base for stateless workstation
-# -----------------------------------------------------------------------------
-FROM docker.io/library/debian:trixie
+The shared base every developer uses. Built `FROM debian:trixie` and includes:
 
-ARG CONTAINER_USERNAME=xdaco
+- **Shell/UX:** zsh + Oh My Zsh (agnoster), tmux, Nerd Fonts, starship, modern CLI tools (ripgrep, fzf, bat, eza, zoxide, fd, jq, git-delta, …)
+- **Runtimes & build basics:** Python 3 (+uv, +pipx), Node.js 24 (+corepack/pnpm/yarn), Rust (cargo + atuin/just/onefetch), and `build-essential`/`cmake`/`ninja`/`pkg-config` for native modules
+- **Data/secrets:** PostgreSQL + SQLite clients, `mycli`/`pgcli`/`litecli`, `sops`, `age`
+- **AI (everyone):** Claude Code, OpenCode, headless Chrome/Chromium, and the Torch-CPU MCP stack (mcp-memory-service, sentence-transformers, onnxruntime, mcp-proxy)
+- **Remote:** OpenSSH server (the default `CMD`)
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV LANG=C.UTF-8
-ENV USER=${CONTAINER_USERNAME}
-ENV HOME=/home/${CONTAINER_USERNAME}
-ENV PATH="$HOME/.cargo/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
-
-# -----------------------------------------------------------------------------
-# System packages
-# -----------------------------------------------------------------------------
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-    pkg-config libssl-dev cmake libgit2-dev \
-    sudo curl wget gnupg2 lsb-release ca-certificates \
-    zsh git tmux openssh-server rsync \
-    build-essential gcc g++ make bash nano \
-    python3 python3-venv python3-pip \
-    nodejs npm php-cli php-mbstring unzip \
-    bash-completion tree fzf fd-find bat jq \
-    ripgrep ncdu htop btop p7zip-full zip skopeo \
-    fdupes duf nmap cmus asciinema pass \
-    stow neovim direnv age wego eza \
-    zoxide git-delta rustc  cargo \
-    fontconfig passwd less glow \
-    ; \
-    rm -rf /var/lib/apt/lists/*
-
-# -----------------------------------------------------------------------------
-# UV (Python package manager)
-# -----------------------------------------------------------------------------
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# -----------------------------------------------------------------------------
-# diff-so-fancy
-# -----------------------------------------------------------------------------
-RUN curl -fsSL \
-    https://github.com/so-fancy/diff-so-fancy/releases/download/v1.4.4/diff-so-fancy \
-    -o /usr/local/bin/diff-so-fancy \
-    && chmod +x /usr/local/bin/diff-so-fancy
-
-# -----------------------------------------------------------------------------
-# Syft (SBOM generator)
-# -----------------------------------------------------------------------------
-RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-
-# -----------------------------------------------------------------------------
-# User + sudo
-# -----------------------------------------------------------------------------
-RUN set -eux; \
-    /usr/sbin/useradd -m -s /usr/bin/zsh ${CONTAINER_USERNAME} && \
-    echo "${CONTAINER_USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${CONTAINER_USERNAME} && \
-    chmod 0440 /etc/sudoers.d/${CONTAINER_USERNAME}
-
-# ----------------------------------------- ------------------------------------
-# SSH daemon
-# -----------------------------------------------------------------------------
-RUN set -eux; \
-    mkdir -p /var/run/sshd; \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config; \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-
-EXPOSE 22
-
-# -----------------------------------------------------------------------------
-# Switch to user
-# -----------------------------------------------------------------------------
-USER ${USER}
-WORKDIR ${HOME}
-
-# -----------------------------------------------------------------------------
-# Rust based tools (rootless)
-# -----------------------------------------------------------------------------
-RUN set -eux; \
-    cargo install just || true; \
-    cargo install onefetch || true; \
-    cargo install atuin || true
-
-# -----------------------------------------------------------------------------
-# Oh My Zsh + Agnoster + Fonts + Starship
-# -----------------------------------------------------------------------------
-RUN set -eux; \
-    \
-    # Oh My Zsh (official unattended)
-    sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended; \
-    \
-    # Agnoster theme
-    git clone --depth=1 https://github.com/agnoster/agnoster-zsh-theme.git /tmp/agnoster; \
-    cp /tmp/agnoster/agnoster.zsh-theme "$HOME/.oh-my-zsh/custom/themes/agnoster.zsh-theme"; \
-    rm -rf /tmp/agnoster; \
-    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="agnoster"/' "$HOME/.zshrc"; \
-    \
-    # Powerline fonts
-    git clone --depth=1 https://github.com/powerline/fonts.git /tmp/powerline-fonts; \
-    /tmp/powerline-fonts/install.sh; \
-    rm -rf /tmp/powerline-fonts; \
-    \
-    # Nerd Fonts (Agave + Meslo)
-    mkdir -p "$HOME/.local/share/fonts"; \
-    curl -fsSL https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Agave.zip -o /tmp/Agave.zip; \
-    curl -fsSL https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Meslo.zip -o /tmp/Meslo.zip; \
-    unzip -qo /tmp/Agave.zip -d "$HOME/.local/share/fonts"; \
-    unzip -qo /tmp/Meslo.zip -d "$HOME/.local/share/fonts"; \
-    fc-cache -fv; \
-    rm -f /tmp/Agave.zip /tmp/Meslo.zip; \
-    \
-    # Starship (installed but not enabled)
-    curl -fsSL https://starship.rs/install.sh | sh -s -- -y; \
-    printf '\n# Starship (optional — disabled by default)\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"; \
-    \
-    # Download and load xdaco aliases
-    curl -fsSL https://raw.githubusercontent.com/xdaco/bash-resources/master/xdaco_aliases.sh -o "$HOME/xdaco_aliases.sh"; \
-    chmod +x "$HOME/xdaco_aliases.sh"; \
-    printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  set -f; source "$HOME/xdaco_aliases.sh"; set +f\nfi\n' >> "$HOME/.zshrc"
-
-# -----------------------------------------------------------------------------
-# Entrypoint
-# -----------------------------------------------------------------------------
-WORKDIR ${HOME}
-CMD ["/usr/sbin/sshd", "-D"]
-```
+Source of truth: [`containers/xdaco-ultimate-base/Containerfile`](containers/xdaco-ultimate-base/Containerfile). Build arg `CONTAINER_USERNAME` (default `xdaco`) sets the user; child images inherit `USER`/`HOME`.
 
 ---
 
-## 📦 `containers/xdaco-ultimate-dev/Containerfile`
+## 📦 `containers/xdaco-ultimate-cpp/Containerfile`
+
+C/C++ toolchain on top of the base — `clang`/`clangd`/`lld`/`lldb`/`llvm`, `gdb`, `valgrind`, `cppcheck`, `clang-format`/`clang-tidy`, `meson`, `ccache`, `bear`, autotools. (Basic `gcc`/`g++`/`make`/`cmake`/`ninja` are already in the base.)
 
 ```Dockerfile
-# -----------------------------------------------------------------------------
-# Multi-stage builders
-# -----------------------------------------------------------------------------
-FROM docker.io/library/composer:2.6 AS composer-builder
-FROM docker.io/chatwork/sops:3.11.0 AS sops-builder
-
-# -----------------------------------------------------------------------------
-# Main image
-# -----------------------------------------------------------------------------
 FROM docker.io/1xdaco/xdaco-ultimate-base:latest
-
-# Copy binaries from builders
-COPY --from=composer-builder /usr/bin/composer /usr/local/bin/composer
-COPY --from=sops-builder /usr/local/bin/sops  /usr/local/bin/sops
 
 USER root
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-    postgresql-client sqlite3 \
+    clang clangd lld lldb llvm clang-format clang-tidy cppcheck \
+    gdb valgrind ccache bear meson \
+    autoconf automake libtool \
     ; \
     rm -rf /var/lib/apt/lists/*
 
@@ -167,48 +39,27 @@ WORKDIR ${HOME}
 
 ---
 
-## 📦 `containers/xdaco-ultimate-ai/Containerfile`
+## 📦 `containers/xdaco-ultimate-php/Containerfile`
+
+PHP toolchain on top of the base — `php-cli` + common extensions (mbstring, xml, curl, zip, intl, bcmath, gd, mysql, pgsql, sqlite3) and Composer.
 
 ```Dockerfile
-FROM docker.io/1xdaco/xdaco-ultimate-dev:latest
+FROM docker.io/library/composer:2.9 AS composer-builder
+
+FROM docker.io/1xdaco/xdaco-ultimate-base:latest
+
+COPY --from=composer-builder /usr/bin/composer /usr/local/bin/composer
+
+USER root
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+    php-cli php-mbstring php-xml php-curl php-zip php-intl php-bcmath php-gd \
+    php-mysql php-pgsql php-sqlite3 \
+    ; \
+    rm -rf /var/lib/apt/lists/*
 
 USER ${USER}
-
-# -----------------------------------------------------------------------------
-# NPM rootless configuration
-# -----------------------------------------------------------------------------
-RUN mkdir -p "$HOME/.npm-global" && \
-    npm config set prefix "$HOME/.npm-global" && \
-    npm install -g @anthropic-ai/claude-code
-
-# -----------------------------------------------------------------------------
-# Python rootless installation with pipx
-# -----------------------------------------------------------------------------
-RUN python3 -m pip install --user --break-system-packages pipx && \
-    python3 -m pipx ensurepath
-
-# mcp-memory-service with CPU-only Torch (avoids 10GB+ NVIDIA/CUDA on AMD64)
-RUN pipx install mcp-memory-service --pip-args="--extra-index-url https://download.pytorch.org/whl/cpu"
-
-# -----------------------------------------------------------------------------
-# Install Opencode (rootless)
-# -----------------------------------------------------------------------------
-RUN curl -fsSL https://opencode.ai/install | bash
-ENV PATH="$HOME/.opencode/bin:$PATH"
-
-USER ${USER}
-WORKDIR ${HOME}
-```
-
----
-
-## 📦 `containers/xdaco-ultimate-db/Containerfile`
-
-```Dockerfile
-FROM docker.io/1xdaco/xdaco-ultimate-ai:latest
-
-USER ${USER}
-RUN python3 -m pipx install mycli pgcli
 WORKDIR ${HOME}
 ```
 
@@ -230,14 +81,14 @@ _(Or pull directly, no build needed.)_
 
 # 🏗 PART 2 — BUILD COMMANDS
 
-The dev, ai, and db containerfiles use `FROM docker.io/1xdaco/xdaco-ultimate-base` (and chain). Build order: **base → dev → ai → db**. Tag locally as `docker.io/1xdaco/...` so those `FROM` references resolve.
+`cpp` and `php` are `FROM docker.io/1xdaco/xdaco-ultimate-base:latest`. Build **base first**, then the stack image(s) you need, tagged as `docker.io/1xdaco/...` so the `FROM` reference resolves. The one-command path is `scripts/publish-containers.sh` (see the Multi-Architecture Build Guide); the manual commands below are the equivalent.
 
 ## Pre-built (Docker Hub)
 
 ```bash
-podman pull docker.io/1xdaco/xdaco-ultimate-base:latest
-podman pull docker.io/1xdaco/xdaco-ultimate-dev:latest
-# optional: ai, db
+podman pull docker.io/1xdaco/xdaco-ultimate-base:latest   # everyone
+podman pull docker.io/1xdaco/xdaco-ultimate-cpp:latest    # C/C++ devs
+podman pull docker.io/1xdaco/xdaco-ultimate-php:latest    # PHP devs
 podman pull docker.io/frooodle/s-pdf
 podman tag docker.io/frooodle/s-pdf xdaco-ultimate-pdf
 ```
@@ -246,9 +97,8 @@ podman tag docker.io/frooodle/s-pdf xdaco-ultimate-pdf
 
 ```bash
 podman build -t docker.io/1xdaco/xdaco-ultimate-base:latest containers/xdaco-ultimate-base
-podman build -t docker.io/1xdaco/xdaco-ultimate-dev:latest containers/xdaco-ultimate-dev
-podman build -t docker.io/1xdaco/xdaco-ultimate-ai:latest containers/xdaco-ultimate-ai
-podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultimate-db
+podman build -t docker.io/1xdaco/xdaco-ultimate-cpp:latest containers/xdaco-ultimate-cpp
+podman build -t docker.io/1xdaco/xdaco-ultimate-php:latest containers/xdaco-ultimate-php
 podman pull docker.io/frooodle/s-pdf
 podman tag docker.io/frooodle/s-pdf xdaco-ultimate-pdf
 ```
@@ -260,12 +110,11 @@ Use the `CONTAINER_USERNAME` build argument (base only; it propagates via `USER`
 ```bash
 CONTAINER_USER=myuser
 podman build --build-arg CONTAINER_USERNAME=$CONTAINER_USER -t docker.io/1xdaco/xdaco-ultimate-base:latest containers/xdaco-ultimate-base
-podman build -t docker.io/1xdaco/xdaco-ultimate-dev:latest containers/xdaco-ultimate-dev
-podman build -t docker.io/1xdaco/xdaco-ultimate-ai:latest containers/xdaco-ultimate-ai
-podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultimate-db
+podman build -t docker.io/1xdaco/xdaco-ultimate-cpp:latest containers/xdaco-ultimate-cpp
+podman build -t docker.io/1xdaco/xdaco-ultimate-php:latest containers/xdaco-ultimate-php
 ```
 
-**Note:** All child images inherit `USER`/`HOME` from base; use the same `CONTAINER_USERNAME` when building the base.
+**Note:** `cpp`/`php` inherit `USER`/`HOME` from base; use the same `CONTAINER_USERNAME` when building the base.
 
 ---
 
@@ -273,14 +122,17 @@ podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultim
 
 ## Main Dev Container
 
+> Runs **rootless** as the container user (`xdaco`); sshd listens on **2222** inside the container. Authorize your login by mounting your public key at `/run/host-pubkey` (shown below). A per-container host key is generated on first start.
+
 **Default username (xdaco):**
 ```bash
 podman run -d \
   --name xdaco-ultimate-devcontainer \
   --hostname xdaco-ultimate-devcontainer \
-  -p 2222:22 \
+  -p 2222:2222 \
+  -v ~/.ssh/id_ed25519.pub:/run/host-pubkey:ro \
   -v ~/Downloads/mhs_workspace:/home/xdaco/workspace:Z \
-  docker.io/1xdaco/xdaco-ultimate-dev:latest
+  docker.io/1xdaco/xdaco-ultimate-base:latest
 ```
 
 **Custom username:**  
@@ -290,9 +142,10 @@ CONTAINER_USER=myuser
 podman run -d \
   --name xdaco-ultimate-devcontainer \
   --hostname xdaco-ultimate-devcontainer \
-  -p 2222:22 \
+  -p 2222:2222 \
+  -v ~/.ssh/id_ed25519.pub:/run/host-pubkey:ro \
   -v ~/Downloads/mhs_workspace:/home/$CONTAINER_USER/workspace:Z \
-  docker.io/1xdaco/xdaco-ultimate-dev:latest
+  docker.io/1xdaco/xdaco-ultimate-base:latest
 ```
 
 ## PDF Server
@@ -355,9 +208,10 @@ Restart=always
 ExecStart=/usr/bin/podman run --rm \
   --name xdaco-ultimate-devcontainer \
   --hostname xdaco-ultimate-devcontainer \
-  -p 2222:22 \
+  -p 2222:2222 \
+  -v %h/.ssh/id_ed25519.pub:/run/host-pubkey:ro \
   -v %h/Downloads/mhs_workspace:/home/xdaco/workspace:Z \
-  docker.io/1xdaco/xdaco-ultimate-dev:latest
+  docker.io/1xdaco/xdaco-ultimate-base:latest
 
 ExecStop=/usr/bin/podman stop xdaco-ultimate-devcontainer
 
@@ -377,9 +231,10 @@ Restart=always
 ExecStart=/usr/bin/podman run --rm \
   --name xdaco-ultimate-devcontainer \
   --hostname xdaco-ultimate-devcontainer \
-  -p 2222:22 \
+  -p 2222:2222 \
+  -v %h/.ssh/id_ed25519.pub:/run/host-pubkey:ro \
   -v %h/Downloads/mhs_workspace:/home/myuser/workspace:Z \
-  docker.io/1xdaco/xdaco-ultimate-dev:latest
+  docker.io/1xdaco/xdaco-ultimate-base:latest
 
 ExecStop=/usr/bin/podman stop xdaco-ultimate-devcontainer
 
@@ -398,8 +253,8 @@ systemctl --user enable --now xdaco-ultimate-devcontainer
 # 🔐 PART 6 — SBOM + COSIGN
 
 ```bash
-syft podman:docker.io/1xdaco/xdaco-ultimate-dev:latest -o spdx-json > sbom.json
-cosign sign --key cosign.key docker.io/1xdaco/xdaco-ultimate-dev:latest
+syft podman:docker.io/1xdaco/xdaco-ultimate-base:latest -o spdx-json > sbom.json
+cosign sign --key cosign.key docker.io/1xdaco/xdaco-ultimate-base:latest
 ```
 
 ---
@@ -409,7 +264,7 @@ cosign sign --key cosign.key docker.io/1xdaco/xdaco-ultimate-dev:latest
 `.envrc`
 
 ```bash
-use podman docker.io/1xdaco/xdaco-ultimate-dev:latest
+use podman docker.io/1xdaco/xdaco-ultimate-base:latest
 layout python
 ```
 
@@ -499,19 +354,19 @@ TARGET_USER=myusername CONTAINER_USER=mycontaineruser ./scripts/bootstrap-mac.zs
 ### macOS
 
 ```bash
-# Build (tag as docker.io/1xdaco/... so dev/ai/db FROMs resolve)
+# Build (tag as docker.io/1xdaco/... so cpp/php FROMs resolve)
 podman build -t docker.io/1xdaco/xdaco-ultimate-base:latest containers/xdaco-ultimate-base
-podman build -t docker.io/1xdaco/xdaco-ultimate-dev:latest containers/xdaco-ultimate-dev
-podman build -t docker.io/1xdaco/xdaco-ultimate-ai:latest containers/xdaco-ultimate-ai
-podman build -t docker.io/1xdaco/xdaco-ultimate-db:latest containers/xdaco-ultimate-db
+podman build -t docker.io/1xdaco/xdaco-ultimate-cpp:latest containers/xdaco-ultimate-cpp
+podman build -t docker.io/1xdaco/xdaco-ultimate-php:latest containers/xdaco-ultimate-php
 
 podman rm -f xdaco-ultimate-devcontainer || true
 podman run -d \
   --name xdaco-ultimate-devcontainer \
   --hostname xdaco-ultimate-devcontainer \
-  -p 2222:22 \
+  -p 2222:2222 \
+  -v ~/.ssh/id_ed25519.pub:/run/host-pubkey:ro \
   -v ~/Downloads/mhs_workspace:/home/xdaco/workspace:Z \
-  docker.io/1xdaco/xdaco-ultimate-dev:latest
+  docker.io/1xdaco/xdaco-ultimate-base:latest
 ```
 
 ### Linux
@@ -536,9 +391,8 @@ Host OS (macOS / Fedora Atomic)
 │  Podman rootless
 │
 ├── xdaco-ultimate-base (OCI)
-│   ├── xdaco-ultimate-dev
-│   ├── xdaco-ultimate-ai
-│   └── xdaco-ultimate-db
+│   ├── xdaco-ultimate-cpp
+│   └── xdaco-ultimate-php
 │
 └── xdaco-ultimate-pdf (external)
 ```
@@ -637,7 +491,7 @@ podman auto-update
 `.envrc`
 
 ```bash
-use podman docker.io/1xdaco/xdaco-ultimate-dev:latest
+use podman docker.io/1xdaco/xdaco-ultimate-base:latest
 ```
 
 ```bash

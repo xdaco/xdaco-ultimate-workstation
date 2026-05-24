@@ -20,17 +20,86 @@ This guide explains how to build, tag, and push multi-architecture container ima
 
 ## Understanding the Build Hierarchy
 
-The xdaco-ultimate containers have a dependency chain:
+The xdaco-ultimate containers share one common base, with language-specific
+toolchains layered on top as siblings:
 
 ```
-xdaco-ultimate-base
-    ↓
-xdaco-ultimate-dev
-    ↓
-xdaco-ultimate-ai
+xdaco-ultimate-base            (shared by everyone)
+    ├── xdaco-ultimate-cpp     (base + heavy C/C++ toolchain)
+    └── xdaco-ultimate-php     (base + php-cli + extensions + Composer)
 ```
 
-**Important:** Each base image must have a multi-arch manifest before building dependent images.
+**Important:** `base` must have a multi-arch manifest before building `cpp`/`php`,
+since both are `FROM xdaco-ultimate-base:latest`.
+
+---
+
+## Tagging Convention & Incremental Updates
+
+Updates to these images are **incremental**: only the changed layers are rebuilt,
+and the `debian:trixie` base layers are shared, so consumers re-pull only the diff.
+
+To keep updates non-breaking and rollback-safe, **always push two tags per image**:
+
+| Tag | Purpose |
+| --- | --- |
+| `:latest` | Moving tag consumers track. Must **always** be a multi-arch manifest list. |
+| `:YYYY-MM-DD` | Immutable snapshot of that day's build. Never overwritten — use it to pin or roll back. |
+
+Rules that protect the multi-arch design:
+
+1. **Never push `:latest` from a single-arch build.** Doing so replaces the
+   manifest list with a one-architecture image and breaks every consumer on the
+   other architecture. Always build the full platform set and push the index in
+   one operation (Buildx `--push`, or `podman manifest push`).
+2. **Publish `base` first**, then `cpp`/`php` — both resolve `base`'s `:latest`
+   manifest from the registry via their `FROM` line.
+3. **Pin downstream `FROM` lines to an immutable tag** when you need a
+   reproducible build instead of tracking a moving `:latest`.
+
+> The CI workflow in `.github/workflows/build.yml` follows these rules
+> automatically: every push/PR verifies a multi-arch build, and a
+> `workflow_dispatch` with `push_to_registry=true` publishes `:latest` +
+> `:YYYY-MM-DD` as proper manifest lists.
+
+---
+
+## One-Command Publish (Local)
+
+For local publishing without CI, use the helper script. It builds every target
+platform into a manifest list and pushes `:latest` + an immutable `:YYYY-MM-DD`
+tag for each image, in dependency order — all from a single command.
+
+```bash
+podman login docker.io          # once
+
+# Build + push all images (base first, then cpp/php), both arches:
+scripts/publish-containers.sh
+
+# A subset, or a single image:
+scripts/publish-containers.sh base cpp
+
+# Local multi-arch build only (no push), e.g. to test changes:
+scripts/publish-containers.sh --no-push base
+```
+
+Common options (also settable via env vars):
+
+| Flag | Env | Default | Meaning |
+| --- | --- | --- | --- |
+| `-r, --registry` | `REGISTRY` | `docker.io` | Target registry |
+| `-n, --namespace` | `NAMESPACE` | `1xdaco` | Registry namespace |
+| `-p, --platforms` | `PLATFORMS` | `linux/amd64,linux/arm64` | Platforms to build |
+| `-t, --tag` | `DATE_TAG` | UTC `YYYY-MM-DD` | Immutable snapshot tag |
+| `--no-latest` | — | (push latest) | Skip updating `:latest` |
+| `--no-push` | — | (push) | Build the manifest locally only |
+
+Run `scripts/publish-containers.sh --help` for full usage.
+
+> Building a non-native architecture locally (e.g. `amd64` on an Apple Silicon
+> Mac) runs under QEMU inside the podman machine and is slow for source-compiled
+> layers. Prefer CI (native runners per arch) for routine multi-arch publishes;
+> use this script for one-offs or when CI isn't available.
 
 ---
 
@@ -49,15 +118,15 @@ cd containers/xdaco-ultimate-base
 podman build --platform linux/amd64 -t docker.io/1xdaco/xdaco-ultimate-base:amd64 .
 podman push docker.io/1xdaco/xdaco-ultimate-base:amd64
 
-# Build xdaco-ultimate-dev (AMD64)
-cd ../xdaco-ultimate-dev
-podman build --platform linux/amd64 -t docker.io/1xdaco/xdaco-ultimate-dev:amd64 .
-podman push docker.io/1xdaco/xdaco-ultimate-dev:amd64
+# Build xdaco-ultimate-cpp (AMD64)
+cd ../xdaco-ultimate-cpp
+podman build --platform linux/amd64 -t docker.io/1xdaco/xdaco-ultimate-cpp:amd64 .
+podman push docker.io/1xdaco/xdaco-ultimate-cpp:amd64
 
-# Build xdaco-ultimate-ai (AMD64)
-cd ../xdaco-ultimate-ai
-podman build --platform linux/amd64 -t docker.io/1xdaco/xdaco-ultimate-ai:amd64 .
-podman push docker.io/1xdaco/xdaco-ultimate-ai:amd64
+# Build xdaco-ultimate-php (AMD64)
+cd ../xdaco-ultimate-php
+podman build --platform linux/amd64 -t docker.io/1xdaco/xdaco-ultimate-php:amd64 .
+podman push docker.io/1xdaco/xdaco-ultimate-php:amd64
 ```
 
 ### Step 2: Build on ARM64 Machine (Mac M1/M2 or ARM Server)
@@ -77,27 +146,27 @@ podman manifest add docker.io/1xdaco/xdaco-ultimate-base:latest docker.io/1xdaco
 podman manifest add docker.io/1xdaco/xdaco-ultimate-base:latest docker.io/1xdaco/xdaco-ultimate-base:arm64
 podman manifest push --all docker.io/1xdaco/xdaco-ultimate-base:latest
 
-# Build xdaco-ultimate-dev (ARM64)
-cd ../xdaco-ultimate-dev
-podman build --platform linux/arm64 -t docker.io/1xdaco/xdaco-ultimate-dev:arm64 .
-podman push docker.io/1xdaco/xdaco-ultimate-dev:arm64
+# Build xdaco-ultimate-cpp (ARM64)
+cd ../xdaco-ultimate-cpp
+podman build --platform linux/arm64 -t docker.io/1xdaco/xdaco-ultimate-cpp:arm64 .
+podman push docker.io/1xdaco/xdaco-ultimate-cpp:arm64
 
-# Create and push manifest for dev
-podman manifest create docker.io/1xdaco/xdaco-ultimate-dev:latest
-podman manifest add docker.io/1xdaco/xdaco-ultimate-dev:latest docker.io/1xdaco/xdaco-ultimate-dev:amd64
-podman manifest add docker.io/1xdaco/xdaco-ultimate-dev:latest docker.io/1xdaco/xdaco-ultimate-dev:arm64
-podman manifest push --all docker.io/1xdaco/xdaco-ultimate-dev:latest
+# Create and push manifest for cpp
+podman manifest create docker.io/1xdaco/xdaco-ultimate-cpp:latest
+podman manifest add docker.io/1xdaco/xdaco-ultimate-cpp:latest docker.io/1xdaco/xdaco-ultimate-cpp:amd64
+podman manifest add docker.io/1xdaco/xdaco-ultimate-cpp:latest docker.io/1xdaco/xdaco-ultimate-cpp:arm64
+podman manifest push --all docker.io/1xdaco/xdaco-ultimate-cpp:latest
 
-# Build xdaco-ultimate-ai (ARM64)
-cd ../xdaco-ultimate-ai
-podman build --platform linux/arm64 -t docker.io/1xdaco/xdaco-ultimate-ai:arm64 .
-podman push docker.io/1xdaco/xdaco-ultimate-ai:arm64
+# Build xdaco-ultimate-php (ARM64)
+cd ../xdaco-ultimate-php
+podman build --platform linux/arm64 -t docker.io/1xdaco/xdaco-ultimate-php:arm64 .
+podman push docker.io/1xdaco/xdaco-ultimate-php:arm64
 
-# Create and push manifest for ai
-podman manifest create docker.io/1xdaco/xdaco-ultimate-ai:latest
-podman manifest add docker.io/1xdaco/xdaco-ultimate-ai:latest docker.io/1xdaco/xdaco-ultimate-ai:amd64
-podman manifest add docker.io/1xdaco/xdaco-ultimate-ai:latest docker.io/1xdaco/xdaco-ultimate-ai:arm64
-podman manifest push --all docker.io/1xdaco/xdaco-ultimate-ai:latest
+# Create and push manifest for php
+podman manifest create docker.io/1xdaco/xdaco-ultimate-php:latest
+podman manifest add docker.io/1xdaco/xdaco-ultimate-php:latest docker.io/1xdaco/xdaco-ultimate-php:amd64
+podman manifest add docker.io/1xdaco/xdaco-ultimate-php:latest docker.io/1xdaco/xdaco-ultimate-php:arm64
+podman manifest push --all docker.io/1xdaco/xdaco-ultimate-php:latest
 ```
 
 ### Step 3: Verify Manifests
@@ -105,8 +174,8 @@ podman manifest push --all docker.io/1xdaco/xdaco-ultimate-ai:latest
 ```bash
 # Check that manifests contain both architectures
 podman manifest inspect docker.io/1xdaco/xdaco-ultimate-base:latest
-podman manifest inspect docker.io/1xdaco/xdaco-ultimate-dev:latest
-podman manifest inspect docker.io/1xdaco/xdaco-ultimate-ai:latest
+podman manifest inspect docker.io/1xdaco/xdaco-ultimate-cpp:latest
+podman manifest inspect docker.io/1xdaco/xdaco-ultimate-php:latest
 ```
 
 ---
@@ -163,8 +232,8 @@ build_multiarch() {
 
 # Build in dependency order
 build_multiarch "xdaco-ultimate-base" "containers/xdaco-ultimate-base"
-build_multiarch "xdaco-ultimate-dev" "containers/xdaco-ultimate-dev"
-build_multiarch "xdaco-ultimate-ai" "containers/xdaco-ultimate-ai"
+build_multiarch "xdaco-ultimate-cpp" "containers/xdaco-ultimate-cpp"
+build_multiarch "xdaco-ultimate-php" "containers/xdaco-ultimate-php"
 
 echo "=== All images built successfully! ==="
 ```
@@ -196,26 +265,35 @@ docker buildx inspect --bootstrap
 # Login
 docker login docker.io
 
-# Build xdaco-ultimate-base
+# Immutable snapshot tag for this publish (rollback / pinning)
+DATE=$(date -u +'%Y-%m-%d')
+
+# Build xdaco-ultimate-base (latest + immutable date tag)
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -t docker.io/1xdaco/xdaco-ultimate-base:latest \
+  -t docker.io/1xdaco/xdaco-ultimate-base:${DATE} \
+  --provenance=false \
   --push \
   ./containers/xdaco-ultimate-base
 
-# Build xdaco-ultimate-dev
+# Build xdaco-ultimate-cpp (FROM base:latest — publish after base)
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t docker.io/1xdaco/xdaco-ultimate-dev:latest \
+  -t docker.io/1xdaco/xdaco-ultimate-cpp:latest \
+  -t docker.io/1xdaco/xdaco-ultimate-cpp:${DATE} \
+  --provenance=false \
   --push \
-  ./containers/xdaco-ultimate-dev
+  ./containers/xdaco-ultimate-cpp
 
-# Build xdaco-ultimate-ai
+# Build xdaco-ultimate-php
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t docker.io/1xdaco/xdaco-ultimate-ai:latest \
+  -t docker.io/1xdaco/xdaco-ultimate-php:latest \
+  -t docker.io/1xdaco/xdaco-ultimate-php:${DATE} \
+  --provenance=false \
   --push \
-  ./containers/xdaco-ultimate-ai
+  ./containers/xdaco-ultimate-php
 ```
 
 **Note:** Buildx automatically creates and pushes the multi-arch manifest.
@@ -228,10 +306,10 @@ docker buildx build \
 
 ```bash
 # Inspect the manifest to see all architectures
-podman manifest inspect docker.io/1xdaco/xdaco-ultimate-dev:latest
+podman manifest inspect docker.io/1xdaco/xdaco-ultimate-cpp:latest
 
 # Or using Docker
-docker manifest inspect docker.io/1xdaco/xdaco-ultimate-dev:latest
+docker manifest inspect docker.io/1xdaco/xdaco-ultimate-cpp:latest
 ```
 
 Expected output should show both platforms:
@@ -258,13 +336,13 @@ Expected output should show both platforms:
 
 ```bash
 # On AMD64 machine
-podman pull docker.io/1xdaco/xdaco-ultimate-dev:latest
-podman inspect docker.io/1xdaco/xdaco-ultimate-dev:latest --format '{{.Architecture}}'
+podman pull docker.io/1xdaco/xdaco-ultimate-cpp:latest
+podman inspect docker.io/1xdaco/xdaco-ultimate-cpp:latest --format '{{.Architecture}}'
 # Output: amd64
 
 # On ARM64 machine (Mac M1/M2)
-podman pull docker.io/1xdaco/xdaco-ultimate-dev:latest
-podman inspect docker.io/1xdaco/xdaco-ultimate-dev:latest --format '{{.Architecture}}'
+podman pull docker.io/1xdaco/xdaco-ultimate-cpp:latest
+podman inspect docker.io/1xdaco/xdaco-ultimate-cpp:latest --format '{{.Architecture}}'
 # Output: arm64
 ```
 
@@ -284,8 +362,8 @@ podman inspect docker.io/1xdaco/xdaco-ultimate-dev:latest --format '{{.Architect
 
 **Solution:** Delete the existing tag and create a new manifest:
 ```bash
-podman rmi docker.io/1xdaco/xdaco-ultimate-dev:latest
-podman manifest create docker.io/1xdaco/xdaco-ultimate-dev:latest
+podman rmi docker.io/1xdaco/xdaco-ultimate-cpp:latest
+podman manifest create docker.io/1xdaco/xdaco-ultimate-cpp:latest
 ```
 
 ### Issue: "Image not found" when adding to manifest
@@ -294,8 +372,8 @@ podman manifest create docker.io/1xdaco/xdaco-ultimate-dev:latest
 
 **Solution:** Push images before creating manifests:
 ```bash
-podman push docker.io/1xdaco/xdaco-ultimate-dev:amd64
-podman push docker.io/1xdaco/xdaco-ultimate-dev:arm64
+podman push docker.io/1xdaco/xdaco-ultimate-cpp:amd64
+podman push docker.io/1xdaco/xdaco-ultimate-cpp:arm64
 ```
 
 ---
@@ -337,13 +415,29 @@ alias inspect-manifest='podman manifest inspect'
 
 ## CI/CD Integration
 
-See `.github/workflows/build.yml` for automated multi-arch builds using GitHub Actions.
+Two workflows drive CI:
 
-Key features:
-- Builds on AMD64 runners
-- Uses QEMU for ARM64 cross-compilation
-- Automatically creates and pushes manifests
-- Optional signing with Cosign
+- `.github/workflows/build.yml` — orchestrator. Resolves the run mode + shared
+  date tag, then builds `base` then `cpp`/`php` and (optionally) signs.
+- `.github/workflows/build-image.yml` — reusable, builds one image multi-arch.
+
+How it works:
+- **Native runners, no QEMU.** Each architecture builds on its own runner via a
+  matrix: `amd64` on `ubuntu-latest`, `arm64` on `ubuntu-24.04-arm` (free for
+  public repos). This avoids emulating the Rust-from-source layers in the base.
+- **Every push/PR verifies both arches** (built in parallel, `push: false`) —
+  catches arm64 regressions before they reach the registry.
+- **`workflow_dispatch` with `push_to_registry=true`** pushes each arch *by
+  digest*, then a `merge` job assembles a manifest list tagged `:latest` +
+  immutable `:YYYY-MM-DD` via `docker buildx imagetools create`. `:latest` is
+  therefore never published as a single-arch image.
+- Builds in dependency order so `dev`'s `FROM base:latest` resolves the freshly
+  merged parent.
+- Generates an SBOM (Syft) per image and optionally signs each manifest-list
+  digest with Cosign (keyless/OIDC).
+
+> To add `ai`/`db` to CI, copy the `dev` job in `build.yml` (adjust `image`,
+> `context`, and `needs` to chain after its parent).
 
 ---
 
