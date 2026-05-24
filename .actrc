@@ -1,0 +1,4 @@
+-P ubuntu-latest=catthehacker/ubuntu:full-latest
+--secret-file .secrets
+--privileged
+-W .github/workflows/build.yml

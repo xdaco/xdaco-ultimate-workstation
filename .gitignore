@@ -4,3 +4,6 @@
 # macOS
 .DS_Store
 
+# act local secrets (referenced by .actrc) — never commit
+.secrets
+
