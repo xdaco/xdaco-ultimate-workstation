@@ -8,115 +8,93 @@ on:
   workflow_dispatch:
     inputs:
       sign_image:
-        description: "Sign the image with Cosign?"
+        description: "Sign the images with Cosign?"
         required: false
         default: false
         type: boolean
       push_to_registry:
-        description: "Push images to Docker Hub?"
+        description: "Push multi-arch images to Docker Hub?"
         required: false
         default: false
         type: boolean
 
 jobs:
-  build:
+  # Resolve run mode once and share it with every image build.
+  #   publish = push and/or sign (both require a registry push)
+  #   date    = immutable YYYY-MM-DD tag, identical across images in this run
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.m.outputs.publish }}
+      date: ${{ steps.m.outputs.date }}
+    steps:
+      - id: m
+        run: |
+          if [ "${{ inputs.push_to_registry }}" = "true" ] || [ "${{ inputs.sign_image }}" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "date=$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+  # base first — cpp/php resolve base:latest from the registry when publishing.
+  base:
+    needs: setup
+    uses: ./.github/workflows/build-image.yml
+    with:
+      image: xdaco-ultimate-base
+      context: ./containers/xdaco-ultimate-base
+      publish: ${{ needs.setup.outputs.publish == 'true' }}
+      date_tag: ${{ needs.setup.outputs.date }}
+    secrets: inherit
+
+  # cpp/php are siblings — both build FROM base:latest.
+  cpp:
+    needs: [setup, base]
+    uses: ./.github/workflows/build-image.yml
+    with:
+      image: xdaco-ultimate-cpp
+      context: ./containers/xdaco-ultimate-cpp
+      publish: ${{ needs.setup.outputs.publish == 'true' }}
+      date_tag: ${{ needs.setup.outputs.date }}
+    secrets: inherit
+
+  php:
+    needs: [setup, base]
+    uses: ./.github/workflows/build-image.yml
+    with:
+      image: xdaco-ultimate-php
+      context: ./containers/xdaco-ultimate-php
+      publish: ${{ needs.setup.outputs.publish == 'true' }}
+      date_tag: ${{ needs.setup.outputs.date }}
+    secrets: inherit
+
+  # Sign the manifest-list digests (covers every architecture in each index).
+  sign:
+    needs: [base, cpp, php]
+    if: ${{ inputs.sign_image == true }}
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # Required for OIDC
+      id-token: write # Required for Cosign keyless (OIDC) signing
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Podman
-        run: |
-          if command -v sudo &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y podman buildah skopeo
-          else
-            apt-get update
-            apt-get install -y podman buildah skopeo
-          fi
-
-      - name: Install Syft
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Build xdaco-ultimate-base
-        run: podman build -t localhost/xdaco-ultimate-base ./containers/xdaco-ultimate-base
-
-      - name: Build xdaco-ultimate-dev
-        run: podman build -t localhost/xdaco-ultimate-dev ./containers/xdaco-ultimate-dev
-      #- name: Build xdaco-ultimate-ai
-      #  run: podman build -t xdaco-ultimate-ai ./containers/xdaco-ultimate-ai
-
-      #- name: Build xdaco-ultimate-db
-      # run: podman build -t xdaco-ultimate-db ./containers/xdaco-ultimate-db
-
-      - name: Start Podman service
-        run: |
-          systemctl --user start podman.socket
-          DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
-          export DOCKER_HOST
-
-      - name: SBOM Generation
-        run: syft podman:localhost/xdaco-ultimate-dev -o spdx-json > sbom.json
-        env:
-          # Fixed hardcoded 1001 to use the dynamic runner UID
-          DOCKER_HOST: unix:///run/user/1001/podman/podman.sock 
-
-      - name: Upload SBOM
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom
-          path: sbom.json
-
       - name: Login to Docker Hub
-        if: ${{ inputs.push_to_registry == true || inputs.sign_image == true }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Tag Images for Registry
-        if: ${{ inputs.push_to_registry == true || inputs.sign_image == true }}
-        run: |
-          podman tag localhost/xdaco-ultimate-base:latest docker.io/1xdaco/xdaco-ultimate-base:latest
-          podman tag localhost/xdaco-ultimate-dev:latest docker.io/1xdaco/xdaco-ultimate-dev:latest
-
-      - name: Push Images to Docker Hub
-        if: ${{ inputs.push_to_registry == true || inputs.sign_image == true }}
-        run: |
-          podman push docker.io/1xdaco/xdaco-ultimate-base:latest
-          podman push docker.io/1xdaco/xdaco-ultimate-dev:latest
-
-      - name: Get Image Digests
-        if: ${{ inputs.sign_image == true }}
-        id: digests
-        run: |
-          BASE_DIGEST=$(podman inspect docker.io/1xdaco/xdaco-ultimate-base:latest --format '{{.Digest}}')
-          DEV_DIGEST=$(podman inspect docker.io/1xdaco/xdaco-ultimate-dev:latest --format '{{.Digest}}')
-          echo "base_digest=$BASE_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "dev_digest=$DEV_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "✓ Base image digest: $BASE_DIGEST"
-          echo "✓ Dev image digest: $DEV_DIGEST"
-
       - name: Cosign Signing (Keyless)
-        if: ${{ inputs.sign_image == true }}
         env:
           COSIGN_EXPERIMENTAL: 1
         run: |
+          REG="docker.io/1xdaco"
           echo "Signing xdaco-ultimate-base..."
-          cosign sign --yes "docker.io/1xdaco/xdaco-ultimate-base@${{ steps.digests.outputs.base_digest }}"
-
-          echo "Signing xdaco-ultimate-dev..."
-          cosign sign --yes "docker.io/1xdaco/xdaco-ultimate-dev@${{ steps.digests.outputs.dev_digest }}"
-
-      - name: Validate Cosign Setup (Dry Run)
-        if: ${{ inputs.sign_image != true }}
-        run: |
-          echo "✓ Cosign is installed"
-          cosign version
-          echo "✓ Signing is disabled for this run"
-          echo "  To enable signing, trigger workflow_dispatch with sign_image=true"
+          cosign sign --yes "${REG}/xdaco-ultimate-base@${{ needs.base.outputs.digest }}"
+          echo "Signing xdaco-ultimate-cpp..."
+          cosign sign --yes "${REG}/xdaco-ultimate-cpp@${{ needs.cpp.outputs.digest }}"
+          echo "Signing xdaco-ultimate-php..."
+          cosign sign --yes "${REG}/xdaco-ultimate-php@${{ needs.php.outputs.digest }}"
