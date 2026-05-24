@@ -1,0 +1,20 @@
+# -----------------------------------------------------------------------------
+# xdaco-ultimate-cpp — C/C++ development on top of the shared base
+#   Adds the heavy compiler-alt / debug / LSP / static-analysis toolchain that
+#   only C/C++ developers need. Basic gcc/g++/make/cmake/ninja already live in
+#   the base for native module builds.
+# -----------------------------------------------------------------------------
+FROM docker.io/1xdaco/xdaco-ultimate-base:latest
+
+USER root
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+    clang clangd lld lldb llvm clang-format clang-tidy cppcheck \
+    gdb valgrind ccache bear meson \
+    autoconf automake libtool \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+USER ${USER}
+WORKDIR ${HOME}

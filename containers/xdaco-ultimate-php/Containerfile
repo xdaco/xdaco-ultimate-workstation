@@ -1,23 +1,21 @@
 # -----------------------------------------------------------------------------
-# Multi-stage builders
+# xdaco-ultimate-php — PHP development on top of the shared base
+#   Adds php-cli + the extensions commonly required by Composer/Laravel/Symfony
+#   projects, plus Composer itself. Kept out of the base so non-PHP devs don't
+#   carry it.
 # -----------------------------------------------------------------------------
-FROM docker.io/library/composer:2.6 AS composer-builder
-FROM docker.io/chatwork/sops:3.11.0 AS sops-builder
+FROM docker.io/library/composer:2.9 AS composer-builder
 
-# -----------------------------------------------------------------------------
-# Main image
-# -----------------------------------------------------------------------------
 FROM docker.io/1xdaco/xdaco-ultimate-base:latest
 
-# Copy binaries from builders
 COPY --from=composer-builder /usr/bin/composer /usr/local/bin/composer
-COPY --from=sops-builder /usr/local/bin/sops  /usr/local/bin/sops
 
 USER root
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-    postgresql-client sqlite3 \
+    php-cli php-mbstring php-xml php-curl php-zip php-intl php-bcmath php-gd \
+    php-mysql php-pgsql php-sqlite3 \
     ; \
     rm -rf /var/lib/apt/lists/*
 

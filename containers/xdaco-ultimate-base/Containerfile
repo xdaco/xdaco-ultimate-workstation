@@ -1,5 +1,22 @@
 # -----------------------------------------------------------------------------
-# xdaco-ultimate-base — Debian Trixie rootless base for stateless workstation
+# xdaco-ultimate-base — Debian Trixie rootless workstation (shared by everyone)
+#
+# This is the common image for all developers: shell + dev experience, Python,
+# Node 24, Rust, basic build tools (for native npm/pip/cargo modules), db
+# clients, secrets tooling, and the full AI stack (Claude Code, OpenCode,
+# headless browser, Torch/ML for MCP). Language-specific toolchains that not
+# everyone needs live in dedicated images built FROM this one:
+#   - xdaco-ultimate-cpp : heavy C/C++ toolchain (clang/llvm/gdb/valgrind/...)
+#   - xdaco-ultimate-php : php-cli + extensions + Composer
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# Builders
+# -----------------------------------------------------------------------------
+FROM docker.io/chatwork/sops:3.13.1 AS sops-builder
+
+# -----------------------------------------------------------------------------
+# Main image
 # -----------------------------------------------------------------------------
 FROM docker.io/library/debian:trixie
 
@@ -9,33 +26,68 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV USER=${CONTAINER_USERNAME}
 ENV HOME=/home/${CONTAINER_USERNAME}
-ENV PATH="$HOME/.cargo/bin:$HOME/.npm-global/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ENV PATH="$HOME/.cargo/bin:$HOME/.npm-global/bin:$HOME/.opencode/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
 # -----------------------------------------------------------------------------
-# System packages
+# System packages + latest security updates
+#   Grouped: core · shell/remote · build basics · Python · db clients ·
+#            archive · CLI utilities · docs
+#   NOTE: the heavy C/C++ toolchain lives in xdaco-ultimate-cpp; PHP lives in
+#   xdaco-ultimate-php. Basic compilers (gcc/g++/make/cmake) stay here because
+#   native npm (node-gyp), pip, and cargo modules need them.
 # -----------------------------------------------------------------------------
 RUN set -eux; \
     apt-get update; \
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends \
-    pkg-config libssl-dev cmake libgit2-dev \
-    sudo curl wget gnupg2 lsb-release ca-certificates \
-    zsh git tmux openssh-server rsync \
-    build-essential gcc g++ make bash nano \
-    python3 python3-venv python3-pip \
-    nodejs npm php-cli php-mbstring unzip \
-    bash-completion tree fzf fd-find bat jq \
-    ripgrep ncdu htop btop p7zip-full zip skopeo \
-    fdupes duf nmap cmus asciinema pass \
-    stow neovim direnv age wego eza \
-    zoxide git-delta rustc  cargo \
-    fontconfig passwd  less glow \
+    sudo curl wget gnupg2 lsb-release ca-certificates passwd less \
+    zsh git tmux openssh-server rsync bash bash-completion nano \
+    build-essential gcc g++ make cmake ninja-build pkg-config libssl-dev libgit2-dev \
+    python3 python3-dev python3-venv python3-pip python3-setuptools python3-wheel \
+    postgresql-client sqlite3 \
+    unzip zip p7zip-full xz-utils bzip2 \
+    tree fzf fd-find bat jq ripgrep ncdu htop btop \
+    skopeo fdupes duf nmap cmus asciinema pass \
+    stow neovim direnv age wego eza zoxide git-delta rustc cargo \
+    fontconfig glow man-db manpages manpages-dev \
     ; \
     rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------------
-# UV (Python package manager)
+# Git LFS (binary install, multi-arch / QEMU safe)
+#   The Debian git-lfs postinst executes the git-lfs Go binary, which fails under
+#   QEMU emulation. Install the arch-matched static binary instead and wire the
+#   filters via `git config` (git itself runs fine under emulation) so the binary
+#   is never executed at build time.
+# -----------------------------------------------------------------------------
+ARG GIT_LFS_VERSION=3.6.1
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    curl -fsSL "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-${arch}-v${GIT_LFS_VERSION}.tar.gz" -o /tmp/git-lfs.tgz; \
+    tar -xzf /tmp/git-lfs.tgz -C /tmp; \
+    install -m 0755 "/tmp/git-lfs-${GIT_LFS_VERSION}/git-lfs" /usr/local/bin/git-lfs; \
+    rm -rf /tmp/git-lfs.tgz "/tmp/git-lfs-${GIT_LFS_VERSION}"; \
+    git config --system filter.lfs.clean 'git-lfs clean -- %f'; \
+    git config --system filter.lfs.smudge 'git-lfs smudge -- %f'; \
+    git config --system filter.lfs.process 'git-lfs filter-process'; \
+    git config --system filter.lfs.required true
+
+# -----------------------------------------------------------------------------
+# Node.js 24 (NodeSource) + Corepack (pnpm / yarn) — JS/TS/React/Vite runtime,
+# also required by Claude Code.
+# -----------------------------------------------------------------------------
+RUN set -eux; \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash -; \
+    apt-get install -y --no-install-recommends nodejs; \
+    corepack enable; \
+    node --version; npm --version; \
+    rm -rf /var/lib/apt/lists/*
+
+# -----------------------------------------------------------------------------
+# UV (Python package manager) + sops (secrets)
 # -----------------------------------------------------------------------------
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=sops-builder /usr/local/bin/sops /usr/local/bin/sops
 
 # -----------------------------------------------------------------------------
 # diff-so-fancy
@@ -51,6 +103,29 @@ RUN curl -fsSL \
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
 # -----------------------------------------------------------------------------
+# Headless browser (multi-arch) for AI/browser automation
+#   amd64: Google Chrome (no official arm64 .deb exists)
+#   arm64: Chromium from Debian, symlinked to the google-chrome* names
+# -----------------------------------------------------------------------------
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    apt-get update; \
+    if [ "$arch" = "amd64" ]; then \
+        install -d -m 0755 /etc/apt/keyrings; \
+        curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub \
+            | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg; \
+        echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+            > /etc/apt/sources.list.d/google-chrome.list; \
+        apt-get update; \
+        apt-get install -y --no-install-recommends google-chrome-stable; \
+    else \
+        apt-get install -y --no-install-recommends chromium chromium-driver; \
+        ln -sf /usr/bin/chromium /usr/local/bin/google-chrome; \
+        ln -sf /usr/bin/chromium /usr/local/bin/google-chrome-stable; \
+    fi; \
+    apt-get clean; rm -rf /var/lib/apt/lists/*
+
+# -----------------------------------------------------------------------------
 # User + sudo
 # -----------------------------------------------------------------------------
 RUN set -eux; \
@@ -58,15 +133,16 @@ RUN set -eux; \
     echo "${CONTAINER_USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${CONTAINER_USERNAME} && \
     chmod 0440 /etc/sudoers.d/${CONTAINER_USERNAME}
 
-# ----------------------------------------- ------------------------------------
-# SSH daemon
 # -----------------------------------------------------------------------------
-RUN set -eux; \
-    mkdir -p /var/run/sshd; \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config; \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+# Rootless SSH daemon
+#   sshd runs as the (non-root) container user on the unprivileged port 2222.
+#   Host keys are generated per-container on first start; mount your public key
+#   at /run/host-pubkey to authorize login. See entrypoint.sh.
+# -----------------------------------------------------------------------------
+COPY entrypoint.sh /usr/local/bin/xdaco-sshd.sh
+RUN chmod 0755 /usr/local/bin/xdaco-sshd.sh
 
-EXPOSE 22
+EXPOSE 2222
 
 # -----------------------------------------------------------------------------
 # Switch to user
@@ -114,12 +190,46 @@ RUN set -eux; \
     curl -fsSL https://starship.rs/install.sh | sh -s -- -y; \
     printf '\n# Starship (optional — disabled by default)\n# eval "$(starship init zsh)"\n' >> "$HOME/.zshrc"; \
     \
+    # UTF-8 locale for every zsh session (incl. SSH) so the agnoster Powerline
+    # prompt renders correctly even when the client/sshd provides no locale
+    printf 'export LANG=C.UTF-8\n' > "$HOME/.zshenv"; \
+    \
     # Download and load xdaco aliases
     curl -fsSL https://raw.githubusercontent.com/xdaco/bash-resources/master/xdaco_aliases.sh -o "$HOME/xdaco_aliases.sh"; \
     chmod +x "$HOME/xdaco_aliases.sh"; \
     printf '\n# Load xdaco aliases\nif [ -f "$HOME/xdaco_aliases.sh" ]; then\n  set -f; source "$HOME/xdaco_aliases.sh"; set +f\nfi\n' >> "$HOME/.zshrc"
+
 # -----------------------------------------------------------------------------
-# Entrypoint
+# Python AI/MCP + DB tooling via pipx  (heavy + stable → kept before the AI CLIs
+# so frequent Claude Code/OpenCode bumps don't invalidate this Torch layer)
+#   - mcp-memory-service[sqlite] already pulls torch + sentence-transformers +
+#     onnxruntime into ONE venv. The CPU-only Torch index avoids the 10GB+ CUDA
+#     stack. (Installing sentence-transformers/onnxruntime as separate pipx apps
+#     would duplicate Torch in a second venv — multi-GB and library-only, so no
+#     CLI — and is intentionally avoided.)
+#   - mcp-proxy and the DB CLIs are real apps, each in its own venv.
+# -----------------------------------------------------------------------------
+RUN set -eux; \
+    python3 -m pip install --user --break-system-packages pipx; \
+    python3 -m pipx ensurepath; \
+    pipx install "mcp-memory-service[sqlite]" --pip-args="--extra-index-url https://download.pytorch.org/whl/cpu"; \
+    pipx install mcp-proxy; \
+    pipx install mycli pgcli litecli
+
+# -----------------------------------------------------------------------------
+# AI CLIs (rootless): Claude Code (npm) + OpenCode
+#   OpenCode is pinned so the build doesn't depend on its (flaky, rate-limited)
+#   GitHub-API "latest version" lookup. Bump OPENCODE_VERSION to update.
+# -----------------------------------------------------------------------------
+ARG OPENCODE_VERSION=1.15.10
+RUN set -eux; \
+    mkdir -p "$HOME/.npm-global"; \
+    npm config set prefix "$HOME/.npm-global"; \
+    npm install -g @anthropic-ai/claude-code; \
+    curl -fsSL https://opencode.ai/install | bash -s -- --version "${OPENCODE_VERSION}"
+
+# -----------------------------------------------------------------------------
+# Entrypoint — rootless sshd as the container user
 # -----------------------------------------------------------------------------
 WORKDIR ${HOME}
-CMD ["/usr/sbin/sshd", "-D"]
+CMD ["/usr/local/bin/xdaco-sshd.sh"]
