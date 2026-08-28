@@ -13,7 +13,7 @@
 # -----------------------------------------------------------------------------
 # Builders
 # -----------------------------------------------------------------------------
-FROM docker.io/chatwork/sops:3.13.1 AS sops-builder
+FROM docker.io/chatwork/sops:3.13.3 AS sops-builder
 
 # -----------------------------------------------------------------------------
 # Main image
@@ -60,7 +60,7 @@ RUN set -eux; \
 #   filters via `git config` (git itself runs fine under emulation) so the binary
 #   is never executed at build time.
 # -----------------------------------------------------------------------------
-ARG GIT_LFS_VERSION=3.6.1
+ARG GIT_LFS_VERSION=3.8.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL "https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/git-lfs-linux-${arch}-v${GIT_LFS_VERSION}.tar.gz" -o /tmp/git-lfs.tgz; \
@@ -221,7 +221,7 @@ RUN set -eux; \
 #   OpenCode is pinned so the build doesn't depend on its (flaky, rate-limited)
 #   GitHub-API "latest version" lookup. Bump OPENCODE_VERSION to update.
 # -----------------------------------------------------------------------------
-ARG OPENCODE_VERSION=1.15.10
+ARG OPENCODE_VERSION=1.18.25
 RUN set -eux; \
     mkdir -p "$HOME/.npm-global"; \
     npm config set prefix "$HOME/.npm-global"; \
