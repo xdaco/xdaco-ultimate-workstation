@@ -80,6 +80,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/Containerfile
           platforms: ${{ matrix.platform }}
           push: false
           cache-from: type=gha,scope=${{ inputs.image }}-${{ steps.prep.outputs.pair }}
@@ -92,6 +93,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/Containerfile
           platforms: ${{ matrix.platform }}
           provenance: false
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ inputs.image }},push-by-digest=true,name-canonical=true,push=true
